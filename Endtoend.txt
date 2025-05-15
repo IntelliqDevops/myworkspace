@@ -1,0 +1,120 @@
+pipeline
+{
+    agent any
+    stages
+    {
+        stage('Download')
+        {
+            steps
+            {
+                git 'https://github.com/IntelliqDevops/voting.git'
+            }
+        }
+        stage('Build docker images')
+        {
+            steps
+            {
+            sh 'cd vote;docker build -t intelliqit/votingapp .'
+             sh 'cd result;docker build -t intelliqit/resultapp .'
+              sh 'cd worker;docker build -t intelliqit/workerapp .'
+            }
+        }
+        stage('Push images to docker hub')
+        {
+            steps
+            {
+                sh 'docker push intelliqit/votingapp'
+            sh 'docker push intelliqit/resultapp'
+            sh 'docker push intelliqit/workerapp'
+            }
+            
+        }
+        stage('Deploy to Qa servers')
+        {
+            steps
+            {
+                sh 'ssh ubuntu@172.31.6.101 ansible-playbook myapp.yml -b'
+               
+            }
+        }
+        stage('Testing')
+        {
+            steps
+            {
+                git 'https://github.com/IntelliqDevops/FunctionalTesting.git'
+                 sh 'java -jar /var/lib/jenkins/workspace/End-end-project/testing.jar'
+            }
+        }
+        stage('Deploy to Kubernetes cluster-production env')
+        {
+            steps
+            {
+            sh 'ssh ec2-user@172.31.14.232 git clone https://github.com/IntelliqDevops/voting.git'
+            sh 'ssh ec2-user@172.31.14.232 kubectl apply -f voting/k8s-specifications/'
+            sh 'ssh ec2-user@172.31.14.232 rm -rf voting'
+
+            }
+        }
+    }
+}
+
+
+============================================================================
+Ansible playbook for deploying voting app on multiple servers
+
+---
+- name: Setup voting app with all dependencies in all the qaservers
+  hosts: all
+  tasks:
+    - name: Create voting app container
+      docker_container:
+        name: voting-app
+        image: intelliqit/votingapp
+        ports:
+           - 5050:80
+
+    - name: Create redis db
+      docker_container:
+        name: redis-app
+        image: redis
+        links:
+          - voting-app:python
+
+    - name: Create dotnet based worker app
+      docker_container:
+        name: worker-app
+        image: intelliqit/workerapp
+        links:
+          - redis-app:redis
+
+    - name: Create postgres db
+      docker_container:
+        name: postgres-app
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: intellqiit
+          POSTGRES_USER: myuser
+          POSTGRES_DB: mydb
+        links:
+          - worker-app:dotnet
+
+    - name: Create node js based result app
+      docker_container:
+         name: reuslt-app
+         image: intelliqit/resultapp
+         links:
+           - postgres-app:postgres
+
+
+
+
+
+
+
+
+
+
+
+
+
+
